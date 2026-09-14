@@ -1,0 +1,71 @@
+import json
+from datetime import datetime,UTC,timedelta,date
+from src.enums import MediaType
+
+def load_cache():
+    try:
+        with open("movies.json","r") as f:
+            cache = json.load(f)
+            cache = cache_cleanup(cache)
+            return cache
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+            
+def save_cache(cache,data,ttl,key):
+    now= datetime.now(UTC)
+    expires_at= now+ timedelta(minutes=ttl)
+    metadata= {"cached_at":now.isoformat(),"expires_at":expires_at.isoformat(),"data":data}
+    cache[key.strip().lower()]=metadata
+    with open("movies.json","w") as f:
+        json.dump(cache,f,indent=4)
+
+
+def cache_cleanup(cache):
+    for key in list(cache): 
+        expires_at= datetime.fromisoformat(cache[key]["expires_at"])
+        now=datetime.now(UTC)
+        if  now >= expires_at:
+            del cache[key]
+    return cache
+
+def search_in_cache(cache,
+                    search:str,
+                    type:str|None=None,
+                    page:int|None=None):
+    key = f"{search}:{page}"
+    if type:
+        key = f"search:{search}:{type}:{page}"
+    # print(key)
+    if key in cache: 
+        print("Using cached result....\n")
+        return cache[key]["data"]
+    return None
+
+
+def search_by_id(cache,
+                 tmdb_id:int,
+                 media_type:MediaType
+                 ):
+    
+    for cache_key,cache_data in cache.items():
+        for media in cache_data["data"]["results"]:
+            if media["id"] != tmdb_id:
+                continue
+            if media_type == MediaType.movie and "title" in media:
+                return media
+            if media_type == MediaType.tv and "name" in media:
+                return media
+    return None
+
+
+
+def str_to_date(date_str):
+   if date_str is None or date_str == "":
+      return None
+   date_obj = date.fromisoformat(date_str)
+   return date_obj
+
+

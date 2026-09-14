@@ -1,0 +1,2 @@
+class TMDBServiceError(Exception):
+    pass
