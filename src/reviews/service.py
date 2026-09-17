@@ -39,7 +39,7 @@ class ReviewService:
         return {
                 "id":review.id,
                 "rating":review.rating,
-                "review":review.content,
+                "content":review.content,
                 "created_at":review.created_at,
                 "media":{
                     "id":review.media.id,
@@ -63,7 +63,7 @@ class ReviewService:
             item ={
                 "id":review.id,
                 "rating":review.rating,
-                "review":review.content,
+                "content":review.content,
                 "created_at":review.created_at,
                 "media":{
                     "id":review.media.id,
@@ -83,7 +83,7 @@ class ReviewService:
             item ={
                 "id":review.id,
                 "rating":review.rating,
-                "review":review.content,
+                "content":review.content,
                 "created_at":review.created_at,
                 "media":{
                     "id":review.media.id,
@@ -106,7 +106,7 @@ class ReviewService:
         return {
                 "id":review.id,
                 "rating":review.rating,
-                "review":review.content,
+                "content":review.content,
                 "created_at":review.created_at,
                 "media":{
                     "id":review.media.id,
@@ -133,7 +133,7 @@ class ReviewService:
         return {
                 "id":review.id,
                 "rating":review.rating,
-                "review":review.content,
+                "content":review.content,
                 "created_at":review.created_at,
                 "media":{
                     "id":review.media.id,

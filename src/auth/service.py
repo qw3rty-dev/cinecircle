@@ -13,6 +13,7 @@ class AuthService:
                 username: str,
                 email: str,
                 password: str,
+                is_private: bool,
                 db:Session):
         
         existing_username = db.scalar(select(User).where(User.username == username))
@@ -23,9 +24,10 @@ class AuthService:
         if existing_email:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="email already exists")
         new_user = User(
-            username = username,
-            email = email,
-            password_hash = hash_password(password)
+            username = username.strip().lower(),
+            email = email.strip().lower(),
+            password_hash = hash_password(password),
+            is_private= is_private
             )
         try:
             db.add(new_user)

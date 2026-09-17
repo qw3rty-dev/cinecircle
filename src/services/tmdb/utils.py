@@ -4,7 +4,7 @@ from src.enums import MediaType
 
 def load_cache():
     try:
-        with open("movies.json","r") as f:
+        with open("media.json","r") as f:
             cache = json.load(f)
             cache = cache_cleanup(cache)
             return cache
@@ -19,7 +19,7 @@ def save_cache(cache,data,ttl,key):
     expires_at= now+ timedelta(minutes=ttl)
     metadata= {"cached_at":now.isoformat(),"expires_at":expires_at.isoformat(),"data":data}
     cache[key.strip().lower()]=metadata
-    with open("movies.json","w") as f:
+    with open("media.json","w") as f:
         json.dump(cache,f,indent=4)
 
 
@@ -59,7 +59,6 @@ def search_by_id(cache,
             if media_type == MediaType.tv and "name" in media:
                 return media
     return None
-
 
 
 def str_to_date(date_str):

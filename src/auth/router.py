@@ -19,6 +19,7 @@ def register(user:UserCreate,
         username=user.username,
         email=user.email,
         password=user.password,
+        is_private=user.is_private,
         db=db
     )
     return new_user

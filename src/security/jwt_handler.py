@@ -48,7 +48,6 @@ def verify_token_access(token:str):
 def get_current_user(token:str = Depends(oauth2_scheme),
                      db:Session=Depends(get_db)):
     current_user_id = verify_token_access(token)
-    print(current_user_id)
     current_user = db.scalar(select(User).where(User.id == current_user_id))
     if not current_user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid authentication credentials")

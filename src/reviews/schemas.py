@@ -14,7 +14,7 @@ class MediaResponse(BaseModel):
 class ReviewResponse(BaseModel):
     id: int
     rating: int
-    review: str
+    content: str
     created_at: datetime
     media: MediaResponse
     model_config=ConfigDict(from_attributes=True)

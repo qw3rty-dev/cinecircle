@@ -60,13 +60,13 @@ class MediaService:
     def trending_movies(self,
                         page:int):
         
-        results=get_or_fetch(trending_movies,"movie",page=page)
+        results=get_or_fetch(trending_movies,MediaType.movie,page=page)
         return results
     
     def trending_tv(self,
                     page:int):
         
-        results=get_or_fetch(trending_tv,"tv",page=page)   
+        results=get_or_fetch(trending_tv,MediaType.tv,page=page)   
         return results
 
     def get_by_id(self,tmdb_id:int,
