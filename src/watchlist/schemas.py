@@ -1,6 +1,9 @@
-from pydantic import BaseModel
 from datetime import date,datetime
+
+from pydantic import BaseModel
+
 from src.enums import MediaType
+
 
 class MediaResponse(BaseModel):
     id: int
@@ -8,10 +11,12 @@ class MediaResponse(BaseModel):
     media_type: MediaType
     premiere_date: date|None
 
+
 class WatchlistResponse(BaseModel):
     id: int
     created_at: datetime
     media: MediaResponse
+
 
 class AddToWatchlistRequest(BaseModel):
     tmdb_id: int

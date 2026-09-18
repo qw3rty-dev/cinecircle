@@ -1,12 +1,13 @@
 from fastapi import APIRouter,HTTPException,status
+
 from .service import MediaService
-from .schemas import SearchAllResponse,SearchMovieResponse,SearchTvResponse,TrendingMovieResponse,TrendingTvResponse,MovieResult,TvResult
 from src.enums import SearchMediaType,MediaType
 from src.services.tmdb.exceptions import TMDBServiceError
+from .schemas import SearchAllResponse,SearchMovieResponse,SearchTvResponse,TrendingMovieResponse,TrendingTvResponse,MovieResult,TvResult
+
 router = APIRouter(prefix="/media",tags=["media"])
 
 media_service = MediaService()
-
 
 @router.get("/search/{search}",response_model=SearchMovieResponse|SearchTvResponse|SearchAllResponse)
 def search_media(search: str,
@@ -18,7 +19,7 @@ def search_media(search: str,
                                     page=page)
         return results
     except TMDBServiceError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail= "Movie service is temporarily unavailable")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail= "TMDB service didn't respond")
 
 
 @router.get("/trending/movie",response_model=TrendingMovieResponse)
@@ -27,7 +28,8 @@ def trending_movies(page:int=1):
         results = media_service.trending_movies(page=page)
         return results
     except TMDBServiceError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail= "Movie service is temporarily unavailable")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail= "TMDB service didn't respond")
+
 
 @router.get("/trending/tv",response_model=TrendingTvResponse)
 def trending_tv(page:int=1):
@@ -35,7 +37,8 @@ def trending_tv(page:int=1):
         results = media_service.trending_tv(page=page)
         return results
     except TMDBServiceError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail="Movie service is temporarily unavailable")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail="TMDB service didn't respond")
+
 
 @router.get("/{id}",response_model=MovieResult|TvResult)
 def get_by_id(id:int,
@@ -44,5 +47,5 @@ def get_by_id(id:int,
         results = media_service.get_by_id(id,media_type)
         return results
     except TMDBServiceError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail="Movie service is temporarily unavailable")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail="TMDB service didn't respond")
 

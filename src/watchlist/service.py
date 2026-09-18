@@ -1,7 +1,8 @@
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from fastapi import status,HTTPException
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
-from sqlalchemy import select
+
 from src.models import User,Watchlist
 from src.media.service import MediaService
 from src.enums import MediaType
@@ -39,6 +40,7 @@ class WatchListService:
                         current_user:User):
         watchlist = db.scalars(select(Watchlist).where(Watchlist.user_id == current_user.id)).all()
         return watchlist
+
 
     def remove_from_watchlist(self,
                               id:int,

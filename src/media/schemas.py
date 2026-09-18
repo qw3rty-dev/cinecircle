@@ -1,6 +1,7 @@
-from pydantic import BaseModel,ConfigDict
 from datetime import date
 from typing import Literal
+
+from pydantic import BaseModel,ConfigDict
 
 
 class MovieResult(BaseModel):
@@ -12,6 +13,7 @@ class MovieResult(BaseModel):
     release_date : date|None
     model_config= ConfigDict(from_attributes=True)
 
+
 class TvResult(BaseModel):
     tmdb_id : int
     media_type : Literal["tv"]
@@ -21,6 +23,7 @@ class TvResult(BaseModel):
     first_air_date : date|None
     model_config= ConfigDict(from_attributes=True)
 
+
 class SearchMovieResponse(BaseModel):
     query : str
     page : int
@@ -28,6 +31,7 @@ class SearchMovieResponse(BaseModel):
     total_results: int
     results: list[MovieResult]
     model_config= ConfigDict(from_attributes=True)
+
 
 class SearchTvResponse(BaseModel):
     query : str
@@ -53,6 +57,7 @@ class TrendingMovieResponse(BaseModel):
     total_results : int
     results : list[MovieResult]
     model_config= ConfigDict(from_attributes=True)
+
 
 class TrendingTvResponse(BaseModel):
     page : int

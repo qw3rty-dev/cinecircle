@@ -1,10 +1,11 @@
-from src.models import User,Follow,FollowRequest
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException,status
-from src.enums import Action
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+
+from src.enums import Action
+from src.models import User,Follow,FollowRequest
 
 
 def get_followers(user:User):
@@ -17,6 +18,7 @@ def get_followers(user:User):
                     "created_at":follower.created_at}
         results.append(account)
     return results
+
 
 def get_following(user:User):
     following_list = user.follower_links
@@ -35,20 +37,21 @@ class UserService():
 
     def show_user_profile(self,
                           username:str,
-                          current_user:str,
+                          current_user:User,
                           db:Session):
  
         user = db.scalar(select(User).where(User.username == username.strip().lower()))
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="User not found")
-        if user.username==current_user or user.is_private == False:
+        existing_follow = db.scalar(select(Follow).where(Follow.follower_id==current_user.id,Follow.following_id==user.id))
+        if user.username==current_user.username or user.is_private == False or existing_follow:
             
             return {
                 "username":user.username,
                 "is_private":user.is_private,
                 "followers": len(user.following_links),
                 "following": len(user.follower_links),
-                "my_profile": user.username==current_user,
+                "my_profile": user.username==current_user.username,
                 "watchlist": user.watchlist,
                 "reviews": user.reviews
 
@@ -59,8 +62,9 @@ class UserService():
             "is_private":user.is_private,
             "followers": len(user.follower_links),
             "following": len(user.following_links),
-            "my_profile": user.username==current_user
+            "my_profile": user.username==current_user.username
         }
+
 
     def search_user(self,
                     q:str,
@@ -76,6 +80,7 @@ class UserService():
                    }
             results.append(data)
         return results
+
 
     def follow_user(self,
                     user_id: int,
@@ -120,6 +125,7 @@ class UserService():
             db.rollback()
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="Already following")
 
+
     def unfollow_user_or_unsend_request(self,
                                         user_id:int,
                                         db:Session,
@@ -141,7 +147,6 @@ class UserService():
         return
 
 
-        
     def request_action(self,
                     request_id:int,
                     action:Action,
@@ -150,6 +155,7 @@ class UserService():
         request = db.scalar(select(FollowRequest).where(FollowRequest.id == request_id,FollowRequest.following_id == current_user.id))
         if not request:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Request not found")
+        
         if action == Action.accept:
             new_follow = Follow(
                 follower_id=request.follower_id,
@@ -168,6 +174,7 @@ class UserService():
             db.delete(request)
             db.commit()
             return {"message":"Request rejected"}
+
 
     def get_follow_request(self,
                            current_user:User):
@@ -198,6 +205,7 @@ class UserService():
         if not existing_follow and user.is_private:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail="User profile is private")
         return get_followers(user)
+
     
     def show_following(self,
                        user_id:int,
@@ -213,6 +221,7 @@ class UserService():
         if not existing_follow and user.is_private:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail="User profile is private")
         return get_following(user)
+
 
     def privacy_preferences(self,
                             is_private:bool,

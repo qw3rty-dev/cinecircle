@@ -1,11 +1,14 @@
+from datetime import datetime,UTC
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from fastapi import status,HTTPException
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
-from sqlalchemy import select
+
 from src.models import User
 from src.security.password import hash_password,verify_password
 from src.security.jwt_handler import create_token_access
-from datetime import datetime,UTC
+
 
 class AuthService:
 
@@ -57,12 +60,23 @@ class AuthService:
         
 
     def change_password(self,
-                        user: str,
+                        user: User,
                         current_password: str,
                         new_password: str,
                         db: Session):
         if not verify_password(current_password,user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="incorrect current password")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Incorrect current password")
         user.password_hash = hash_password(new_password)
         db.commit()
-        return {"message": "password changed successfully"}
+        return {"message": "Password changed successfully"}
+
+    def delete_account(self,
+                       password: str,
+                       db: Session,
+                       current_user: User):
+        
+        if not verify_password(password,current_user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Incorrect password")
+        db.delete(current_user)
+        db.commit()
+        return {"message":"Account_deleted"}

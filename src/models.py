@@ -1,8 +1,9 @@
-from sqlalchemy.orm import mapped_column, Mapped, relationship
-from sqlalchemy import ForeignKey, UniqueConstraint
-from src.db import Base
 from datetime import datetime, UTC, date
-from src.enums import RequestStatus,MediaType
+
+from src.db import Base
+from src.enums import RequestStatus, MediaType
+from sqlalchemy import ForeignKey, UniqueConstraint
+from sqlalchemy.orm import mapped_column, Mapped, relationship
 
 
 class User(Base):
@@ -14,12 +15,12 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
     is_private: Mapped[bool] = mapped_column(default=False,nullable=False)
     last_login: Mapped[datetime|None] = mapped_column(nullable=True)
-    watchlist: Mapped[list["Watchlist"]] = relationship(back_populates="user")
-    reviews: Mapped[list["Review"]] = relationship(back_populates="user")
-    follower_links: Mapped[list["Follow"]] = relationship("Follow",foreign_keys="Follow.follower_id",back_populates="follower")
-    following_links: Mapped[list["Follow"]] = relationship("Follow",foreign_keys="Follow.following_id",back_populates="following")
-    sent_follow_requests: Mapped[list["Follow"]] = relationship("FollowRequest",foreign_keys="FollowRequest.follower_id",back_populates="follower")
-    recieved_follow_requests: Mapped[list["Follow"]] = relationship("FollowRequest",foreign_keys="FollowRequest.following_id",back_populates="following")
+    watchlist: Mapped[list["Watchlist"]] = relationship(back_populates="user",passive_deletes=True)
+    reviews: Mapped[list["Review"]] = relationship(back_populates="user",passive_deletes=True)
+    follower_links: Mapped[list["Follow"]] = relationship("Follow",foreign_keys="Follow.follower_id",back_populates="follower",passive_deletes=True)
+    following_links: Mapped[list["Follow"]] = relationship("Follow",foreign_keys="Follow.following_id",back_populates="following",passive_deletes=True)
+    sent_follow_requests: Mapped[list["Follow"]] = relationship("FollowRequest",foreign_keys="FollowRequest.follower_id",back_populates="follower",passive_deletes=True)
+    recieved_follow_requests: Mapped[list["Follow"]] = relationship("FollowRequest",foreign_keys="FollowRequest.following_id",back_populates="following",passive_deletes=True)
 
 
 class Media(Base):
@@ -40,7 +41,7 @@ class Watchlist(Base):
     __table_args__= (UniqueConstraint("media_id","user_id"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"),nullable=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
     user: Mapped["User"] = relationship(back_populates="watchlist")
     media: Mapped["Media"] = relationship(back_populates="saved_by")
@@ -50,7 +51,7 @@ class Review(Base):
     __table_args__= (UniqueConstraint("media_id","user_id"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"),nullable=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     content:Mapped[str] = mapped_column(nullable=False)
     rating:Mapped[int] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
@@ -62,8 +63,8 @@ class Follow(Base):
     __tablename__ ='follows'
     __table_args__ = (UniqueConstraint("follower_id","following_id"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    follower_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False) 
-    following_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
+    follower_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False) 
+    following_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
     follower: Mapped["User"] = relationship("User",foreign_keys=[follower_id],back_populates="following_links")
     following: Mapped["User"] = relationship("User",foreign_keys=[following_id],back_populates="follower_links")
@@ -72,10 +73,15 @@ class FollowRequest(Base):
     __tablename__ ='follow_requests'
     __table_args__ = (UniqueConstraint("follower_id","following_id"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    follower_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False) 
-    following_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
+    follower_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False) 
+    following_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     status:Mapped[RequestStatus] = mapped_column(default=RequestStatus.pending,nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
     follower: Mapped["User"] = relationship("User",foreign_keys=[follower_id],back_populates="sent_follow_requests")
     following: Mapped["User"] = relationship("User",foreign_keys=[following_id],back_populates="recieved_follow_requests")
     
+# class Like(Base):
+#     id: Mapped[int] = mapped_column(primary_key=True)
+#     review_id: Mapped[int] = mapped_column(ForeignKey("reviews.id"),nullable=False)
+#     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"),nullable=False)
+#     created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))

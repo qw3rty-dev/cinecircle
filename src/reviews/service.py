@@ -1,11 +1,10 @@
-from fastapi import status,HTTPException,Depends
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 from sqlalchemy import select
-from src.models import User,Watchlist,Review,Media
-from datetime import datetime,UTC,date
+from sqlalchemy.orm import Session
+from fastapi import status,HTTPException
+from sqlalchemy.exc import IntegrityError
+
+from src.models import User,Review,Media
 from src.media.service import MediaService
-from src.services.tmdb.services import search_movie,search_tv,trending_movies,trending_tv
 from .schemas import UpdateReviewRequest
 from src.enums import MediaType
 
@@ -51,7 +50,6 @@ class ReviewService:
 
                 
 
-
     def get_reviews(self,
                    media_id:int,
                    db:Session):
@@ -74,6 +72,7 @@ class ReviewService:
             }
             reviews.append(item)
         return reviews
+
     
     def get_my_reviews(self,
                       db:Session,
@@ -94,6 +93,7 @@ class ReviewService:
             }
             reviews.append(item)
         return reviews
+
     
     def get_review_by_id(self,
                         review_id:int,
@@ -115,6 +115,8 @@ class ReviewService:
                     "premiere_date":review.media.premiere_date
                 }
         }
+
+    
     def edit_review(self,
                     review_id:int,
                     update:UpdateReviewRequest,
@@ -142,7 +144,8 @@ class ReviewService:
                     "premiere_date":review.media.premiere_date
                 }
         }
-       
+
+
     def delete_review(self,
                       review_id:int,
                       db:Session,

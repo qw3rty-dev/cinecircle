@@ -1,5 +1,6 @@
-from pydantic import BaseModel,EmailStr,ConfigDict,Field
 from datetime import datetime
+
+from pydantic import BaseModel,EmailStr,ConfigDict,Field
 
 
 class UserCreate(BaseModel):
@@ -26,9 +27,13 @@ class TokenResponse(BaseModel):
 
 
 class ChangePassword(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str=Field(min_length=8,max_length=128)
+    new_password: str=Field(min_length=8,max_length=128)
     model_config = ConfigDict(extra="forbid")
+
 
 class MessageResponse(BaseModel):
     message: str
+
+class DeleteAccountRequest(BaseModel):
+    password: str=Field(min_length=8,max_length=128)

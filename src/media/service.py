@@ -1,9 +1,9 @@
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
-from src.models import Media
 from fastapi import HTTPException,status
-from src.enums import MediaType,SearchMediaType
+from sqlalchemy.exc import IntegrityError
 
+from src.models import Media
+from src.enums import MediaType,SearchMediaType
 from src.services.tmdb.services import search_movie,search_tv,trending_movies,trending_tv,get_by_id,get_media_info
 
 
@@ -30,9 +30,9 @@ def get_or_fetch(func,
 
     return search_results
 
+
 class MediaService:
 
-        
     def search(self,
                search: str,
                media_type:SearchMediaType,
@@ -57,22 +57,26 @@ class MediaService:
          
         return search_results
 
+
     def trending_movies(self,
                         page:int):
         
         results=get_or_fetch(trending_movies,MediaType.movie,page=page)
         return results
+
     
     def trending_tv(self,
                     page:int):
         
         results=get_or_fetch(trending_tv,MediaType.tv,page=page)   
         return results
+    
 
     def get_by_id(self,tmdb_id:int,
                   media_type:MediaType):
        data = get_by_id(tmdb_id,media_type)
        return data
+
 
     @staticmethod
     def get_or_create_media(tmdb_id,media_type,db):

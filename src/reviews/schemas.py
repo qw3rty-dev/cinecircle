@@ -1,5 +1,7 @@
-from pydantic import BaseModel,ConfigDict,Field
 from datetime import date,datetime
+
+from pydantic import BaseModel,ConfigDict,Field
+
 from src.enums import MediaType
 
 
@@ -27,6 +29,7 @@ class CreateReviewRequest(BaseModel):
     rating: int= Field(ge=1, le=5)
     content: str= Field(min_length=1,max_length=1000)
     model_config=ConfigDict(extra="forbid")
+
 
 class UpdateReviewRequest(BaseModel):
 

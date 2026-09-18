@@ -1,14 +1,14 @@
 import os 
 import time
+
 import requests
-from typing import Literal
 from dotenv import load_dotenv
-from datetime import datetime,UTC
-from .utils import save_cache,load_cache,search_in_cache,search_by_id,str_to_date
-from .exceptions import TMDBServiceError
-from urllib3.util.retry import Retry
-from src.enums import MediaType
 from requests.adapters import HTTPAdapter
+
+from src.enums import MediaType
+from urllib3.util.retry import Retry
+from .exceptions import TMDBServiceError
+from .utils import save_cache,load_cache,search_in_cache,search_by_id,str_to_date
 
 
 load_dotenv()

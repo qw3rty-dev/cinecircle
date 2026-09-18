@@ -1,13 +1,16 @@
 import os
 from datetime import datetime,timedelta,UTC
-from dotenv import load_dotenv
+
 import jwt
+from dotenv import load_dotenv
 from fastapi import HTTPException,status,Depends
+from fastapi.security import OAuth2PasswordBearer
+
 from src.db import get_db
 from src.models import User
-from sqlalchemy.orm import Session
 from sqlalchemy import select
-from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+
 
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -20,6 +23,7 @@ if not ALGORITHM:
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+
 def create_token_access(user_id:int):
     expire = datetime.now(UTC)+ timedelta(minutes=30)
     payload = {
@@ -30,6 +34,7 @@ def create_token_access(user_id:int):
     return jwt.encode(payload,
                       SECRET_KEY,
                       ALGORITHM)
+
 
 def verify_token_access(token:str):
     try:
