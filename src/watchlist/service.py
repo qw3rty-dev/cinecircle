@@ -1,11 +1,13 @@
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from sqlalchemy.orm import Session, selectinload
 from fastapi import status,HTTPException
 from sqlalchemy.exc import IntegrityError
 
-from src.models import User,Watchlist
+from src.models import User,Watchlist, Media
 from src.media.service import MediaService
-from src.enums import MediaType
+from src.pagination.utils import generate_meta
+from src.enums import MediaType, SortOrder, SortWatchlist, WatchlistStatus
+
 
 
 class WatchListService:
@@ -15,8 +17,8 @@ class WatchListService:
                          media_type:MediaType,
                          db:Session,
                          current_user:User):
+        
         media_id = MediaService.get_or_create_media(tmdb_id,media_type,db)
-
         watchlist_obj = Watchlist(
             media_id = media_id,
             user_id = current_user.id
@@ -31,21 +33,66 @@ class WatchListService:
         return {"id":watchlist_obj.id,
                 "media_id":watchlist_obj.media_id,
                 "user_id":watchlist_obj.user_id,
+                "status":watchlist_obj.status,
                 "created_at":watchlist_obj.created_at,
                 "media":watchlist_obj.media}
 
 
     def fetch_watchlist(self,
+                        search:str,
+                        status:WatchlistStatus,
+                        sort_by:SortWatchlist,
+                        sort_order:SortOrder,
+                        limit:int,
+                        page: int,
                         db:Session,
                         current_user:User):
-        watchlist = db.scalars(select(Watchlist).where(Watchlist.user_id == current_user.id)).all()
-        return watchlist
+        
+        query = select(Watchlist).where(Watchlist.user_id == current_user.id)
+        query = query.join(Watchlist.media).options(selectinload(Watchlist.media))
+        if search:
+            search = search.strip()
+            query = query.where(Media.title.ilike(f"%{search}%"))
+        if status:
+            query = query.where(Watchlist.status == status.value)
 
+        total = db.scalar(select(func.count()).select_from(query.subquery()))
+        sort_fields={SortWatchlist.created_at.created_at: Watchlist.created_at,
+                     SortWatchlist.title: func.lower(Media.title)}
+        sort_expression = sort_fields[sort_by]
+        order = sort_expression.asc() if sort_order == SortOrder.asc else sort_expression.desc()
+        query = query.order_by(order,Watchlist.id.desc())
+        offset = (page-1)*limit
+        query = query.limit(limit).offset(offset)
+        watchlist = db.scalars(query).all()
+        meta = generate_meta(page,limit,total)
 
+        return {"meta":meta,
+                "watchlist":watchlist}
+    
+    def change_status(self,
+                    id:int,
+                    new_status:str,
+                    db:Session,
+                    current_user:User):
+        watchlist_obj = db.scalar(select(Watchlist).where(Watchlist.id == id,Watchlist.user_id == current_user.id))
+        if not watchlist_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Review not found")
+        if watchlist_obj.status != new_status:
+            watchlist_obj.status = new_status
+            db.commit()
+        return {"id":watchlist_obj.id,
+                "media_id":watchlist_obj.media_id,
+                "user_id":watchlist_obj.user_id,
+                "status":watchlist_obj.status,
+                "created_at":watchlist_obj.created_at,
+                "media":watchlist_obj.media}
+    
     def remove_from_watchlist(self,
                               id:int,
                               db:Session,
                               current_user:User):
+        
         media = db.scalar(select(Watchlist).where(Watchlist.id == id,Watchlist.user_id == current_user.id))
         if not media:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Media not found")

@@ -1,4 +1,4 @@
-from fastapi import APIRouter,HTTPException,status
+from fastapi import APIRouter,HTTPException,status,Query
 
 from .service import MediaService
 from src.enums import SearchMediaType,MediaType
@@ -11,8 +11,8 @@ media_service = MediaService()
 
 @router.get("/search/{search}",response_model=SearchMovieResponse|SearchTvResponse|SearchAllResponse)
 def search_media(search: str,
-                media_type:SearchMediaType=SearchMediaType.all,
-                page:int=1 ):
+                media_type:SearchMediaType = Query(default=SearchMediaType.all),
+                page:int = Query(default=1) ):
     try:
         results = media_service.search(search,
                                     media_type=media_type,
@@ -23,7 +23,7 @@ def search_media(search: str,
 
 
 @router.get("/trending/movie",response_model=TrendingMovieResponse)
-def trending_movies(page:int=1):
+def trending_movies(page:int = Query(default=1)):
     try:
         results = media_service.trending_movies(page=page)
         return results
@@ -32,7 +32,7 @@ def trending_movies(page:int=1):
 
 
 @router.get("/trending/tv",response_model=TrendingTvResponse)
-def trending_tv(page:int=1):
+def trending_tv(page:int = Query(default=1)):
     try:
         results = media_service.trending_tv(page=page)
         return results

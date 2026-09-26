@@ -18,7 +18,10 @@ class AuthService:
                 password: str,
                 is_private: bool,
                 db:Session):
-        
+
+        username = username.strip().lower()
+        email = email.strip().lower()
+
         existing_username = db.scalar(select(User).where(User.username == username))
         if existing_username:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="username already exists")
@@ -27,8 +30,8 @@ class AuthService:
         if existing_email:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="email already exists")
         new_user = User(
-            username = username.strip().lower(),
-            email = email.strip().lower(),
+            username = username,
+            email = email,
             password_hash = hash_password(password),
             is_private= is_private
             )
@@ -47,6 +50,7 @@ class AuthService:
               email: str,
               password: str,
               db: Session):
+        
         user = db.scalar(select(User).where(User.email == email))
         if not user or not verify_password(password,user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="invalid credentials")
