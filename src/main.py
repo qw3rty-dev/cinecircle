@@ -1,4 +1,6 @@
+import httpx
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
 from src.auth.router import router as auth_router
 from src.users.router import router as users_router
@@ -6,8 +8,13 @@ from src.media.router import router as media_router
 from src.reviews.router import router as reviews_router
 from src.watchlist.router import router as watchlist_router
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http_client = httpx.AsyncClient()
+    yield
+    await app.state.http_client.aclose()
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
 app.include_router(media_router)

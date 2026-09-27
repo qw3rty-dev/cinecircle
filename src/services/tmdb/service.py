@@ -1,6 +1,7 @@
 import os 
 import time
-
+import asyncio
+import httpx
 import requests
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
@@ -13,6 +14,9 @@ from .utils import save_cache,load_cache,search_in_cache,search_by_id,str_to_dat
 
 load_dotenv()
 ACCESS_TOKEN= os.getenv("ACCESS_TOKEN")
+
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+MAX_RETRIES = 3
 
 
 def make_session():
@@ -32,28 +36,55 @@ def make_session():
     })
     return session
 
-def request_data(url,params:dict|None=None):
-    SESSION = make_session()
+async def request_data(client: httpx.AsyncClient,
+                       url,
+                       params:dict|None=None
+                       ):
+    # SESSION = make_session()
+    headers = {
+        "User-Agent": "CineSearch/1.0 (+https://example.com)",
+        "accept": "application/json",
+        "Authorization": ACCESS_TOKEN
+    }
     print("Calling TMDB....\n")
-    try:
-        req= SESSION.get(url=url,params=params,timeout=20)
-        req.raise_for_status()
-        data= req.json()
-        return data
-    except requests.exceptions.ConnectionError as e:
-        print(f"Could not connect to TMDB.  ")
-        raise TMDBServiceError("Could not connect to TMDB.") from e
+    for attempt in range(1,MAX_RETRIES+1):
+        print(attempt)
+        delay = 2**attempt
+        try:
+            req= await client.get(url=url,params=params,headers=headers)
+            if req.status_code in RETRY_STATUS_CODES:
+                if req.status_code == 429:
+                    retry_after = req.headers.get("Retry-After")
+                    if retry_after is not None:
+                        try:
+                            delay = int(retry_after)
+                        except ValueError:
+                            pass
+                if attempt == MAX_RETRIES:
+                    req.raise_for_status()
+                await asyncio.sleep(delay)
+                continue
+            req.raise_for_status()
+            return req.json()
+        except httpx.ConnectError as e:
+            print(f"Could not connect to TMDB.  ")
+            if attempt == MAX_RETRIES:
+               raise TMDBServiceError("Could not connect to TMDB.") from e
+            await asyncio.sleep(2**attempt)
 
-    except requests.exceptions.Timeout:
-        print("TMDB took too long to respond.")
-        raise TMDBServiceError("TMDB took too long to respond.") from e
+        except httpx.TimeoutException as e:
+            print("TMDB took too long to respond.")
+            if attempt == MAX_RETRIES:
+               raise TMDBServiceError("TMDB took too long to respond.") from e
+            await asyncio.sleep(2**attempt)
 
-    except requests.exceptions.HTTPError as e:
-        print(f"TMDB returned an HTTP error: {e}")
-        print(req.text)
-        raise TMDBServiceError(f"TMDB returned an HTTP error:{e}") from e
+        except httpx.HTTPStatusError as e:
+            print(f"TMDB returned an HTTP error: {e}")
+            print(req.text)
+            raise TMDBServiceError(f"TMDB returned an HTTP error:{e}") from e
 
-def search_tv(search:str,
+async def search_tv(client: httpx.AsyncClient,
+              search:str,
               page:int=1):
     search = search.lower().strip()    
     cache=load_cache()
@@ -65,14 +96,15 @@ def search_tv(search:str,
     params = {"query":search,
               "page":page}
     
-    data = request_data(url,params)
+    data = await request_data(client,url,params)
     key = f"search:{search}:tv:{page}"
     save_cache(cache,data,2,key)
 
     return data
 
-def search_movie(search:str,
-                 page:int=1):
+async def search_movie(client: httpx.AsyncClient,
+                       search:str,
+                       page:int=1):
     search = search.lower().strip()    
     cache=load_cache()
     cached_result= search_in_cache(cache,search,"movie",page)
@@ -83,15 +115,16 @@ def search_movie(search:str,
     params = {"query":search,
               "page":page}
     
-    data = request_data(url,params)
+    data = await request_data(client,url,params)
     key = f"search:{search}:movie:{page}"
     save_cache(cache,data,2,key)
 
     return data
 
 
-def trending_movies(search=None,
-                    page:int=1):
+async def trending_movies(client: httpx.AsyncClient,
+                          search=None,
+                          page:int=1):
 
     cache=load_cache()
     cached_result= search_in_cache(cache=cache,search="trending:movie",page=page)
@@ -99,13 +132,15 @@ def trending_movies(search=None,
         return cached_result
     
     url= "https://api.themoviedb.org/3/trending/movie/day"
-    data = request_data(url,params={"page":page})
+    params={"page":page}
+    data = await request_data(client,url,params)
     key = f"trending:movie:{page}"
     save_cache(cache,data,1,key)
     return data
 
-def trending_tv(search=None,
-                page:int=1):
+async def trending_tv(client: httpx.AsyncClient,
+                      search=None,
+                      page:int=1):
 
     cache=load_cache()
     cached_result= search_in_cache(cache=cache,search="trending:tv",page=page)
@@ -113,7 +148,8 @@ def trending_tv(search=None,
         return cached_result
     
     url= "https://api.themoviedb.org/3/trending/tv/day"
-    data = request_data(url,params={"page":page})
+    params={"page":page}
+    data = await request_data(client,url,params)
     key = f"trending:tv:{page}"
     save_cache(cache,data,1,key)
     return data
@@ -133,14 +169,15 @@ def get_media_info(item,
         return movie_info
 
 
-def get_by_id(tmdb_id:int,
-              media_type:MediaType):
+async def get_by_id(client: httpx.AsyncClient,
+                    tmdb_id:int,
+                    media_type:MediaType):
     cache=load_cache()
     media = search_by_id(cache=cache,tmdb_id=tmdb_id,media_type=media_type)
     if media is not None:
         return get_media_info(media,media_type)
     url = f"https://api.themoviedb.org/3/{media_type.value}/{tmdb_id}"
-    media = request_data(url)
+    media = await request_data(client,url)
     return get_media_info(media,media_type)
 
 

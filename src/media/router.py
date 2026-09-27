@@ -1,4 +1,4 @@
-from fastapi import APIRouter,HTTPException,status,Query
+from fastapi import APIRouter,HTTPException,status,Query,Request
 
 from .service import MediaService
 from src.enums import SearchMediaType,MediaType
@@ -10,41 +10,48 @@ router = APIRouter(prefix="/media",tags=["media"])
 media_service = MediaService()
 
 @router.get("/search/{search}",response_model=SearchMovieResponse|SearchTvResponse|SearchAllResponse)
-def search_media(search: str,
-                media_type:SearchMediaType = Query(default=SearchMediaType.all),
-                page:int = Query(default=1) ):
+async def search_media(request:Request,
+                       search: str,
+                       media_type:SearchMediaType = Query(default=SearchMediaType.all),
+                       page:int = Query(default=1) ):
     try:
-        results = media_service.search(search,
-                                    media_type=media_type,
-                                    page=page)
+        client = request.app.state.http_client
+        results = await media_service.search(search,media_type,page,client)
         return results
+    
     except TMDBServiceError:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail= "TMDB service didn't respond")
 
 
 @router.get("/trending/movie",response_model=TrendingMovieResponse)
-def trending_movies(page:int = Query(default=1)):
+async def trending_movies(request: Request,
+                          page:int = Query(default=1)):
     try:
-        results = media_service.trending_movies(page=page)
+        client = request.app.state.http_client
+        results = await media_service.trending_movies(page,client)
         return results
     except TMDBServiceError:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail= "TMDB service didn't respond")
 
 
 @router.get("/trending/tv",response_model=TrendingTvResponse)
-def trending_tv(page:int = Query(default=1)):
+async def trending_tv(request: Request,
+                      page:int = Query(default=1)):
     try:
-        results = media_service.trending_tv(page=page)
+        client = request.app.state.http_client
+        results = await media_service.trending_tv(page,client)
         return results
     except TMDBServiceError:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail="TMDB service didn't respond")
 
 
 @router.get("/{id}",response_model=MovieResult|TvResult)
-def get_by_id(id:int,
-              media_type:MediaType):
+async def get_by_id(request: Request,
+                    id:int,
+                    media_type:MediaType):
     try:
-        results = media_service.get_by_id(id,media_type)
+        client = request.app.state.http_client
+        results = await media_service.get_by_id(id,media_type,client)
         return results
     except TMDBServiceError:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,detail="TMDB service didn't respond")

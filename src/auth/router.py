@@ -1,5 +1,5 @@
-from sqlalchemy.orm import Session
 from fastapi import Depends,APIRouter,status
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.security import OAuth2PasswordRequestForm
 
 from src.db import get_db
@@ -14,10 +14,10 @@ router = APIRouter(prefix="/auth",tags=["authentication"])
 auth_service = AuthService()
 
 @router.post("/register",response_model=UserResponse,status_code=status.HTTP_201_CREATED)
-def register(user:UserCreate,
-             db:Session=Depends(get_db)):
+async def register(user:UserCreate,
+                   db:AsyncSession=Depends(get_db)):
     
-    new_user = auth_service.register(
+    new_user = await auth_service.register(
         username=user.username,
         email=user.email,
         password=user.password,
@@ -28,10 +28,10 @@ def register(user:UserCreate,
 
 
 @router.post("/login",response_model=TokenResponse,status_code=status.HTTP_200_OK)
-def login(formdata:OAuth2PasswordRequestForm=Depends(),
-          db:Session=Depends(get_db)):
+async def login(formdata:OAuth2PasswordRequestForm=Depends(),
+                db:AsyncSession=Depends(get_db)):
     
-    token = auth_service.login(
+    token = await auth_service.login(
         email= formdata.username,
         password=formdata.password,
         db=db
@@ -40,17 +40,18 @@ def login(formdata:OAuth2PasswordRequestForm=Depends(),
 
 
 @router.patch("/change_password",response_model=MessageResponse,status_code=status.HTTP_200_OK)
-def change_password(password:ChangePassword,
-             db:Session=Depends(get_db),
-             user:User=Depends(get_current_user)):
+async def change_password(password:ChangePassword,
+                          db:AsyncSession=Depends(get_db),
+                          current_user:User=Depends(get_current_user)):
     
-    return auth_service.change_password(user=user,
+    return await auth_service.change_password(user=current_user,
                                          current_password=password.current_password,
                                          new_password=password.new_password,
                                          db=db
                                         )
+
 @router.delete("/delete-account",status_code=status.HTTP_200_OK,response_model=MessageResponse)
-def delete_account(data:DeleteAccountRequest,
-                   db:Session=Depends(get_db),
+async def delete_account(data:DeleteAccountRequest,
+                   db:AsyncSession=Depends(get_db),
                    current_user:User=Depends(get_current_user)):
-    return auth_service.delete_account(data.password,db,current_user)
+    return await auth_service.delete_account(data.password,db,current_user)

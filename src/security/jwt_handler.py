@@ -6,10 +6,12 @@ from dotenv import load_dotenv
 from fastapi import HTTPException,status,Depends
 from fastapi.security import OAuth2PasswordBearer
 
-from src.db import get_db
-from src.models import User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.db import get_db
+from src.models import User
 
 
 load_dotenv()
@@ -50,10 +52,10 @@ def verify_token_access(token:str):
     return user_id
 
 
-def get_current_user(token:str = Depends(oauth2_scheme),
-                     db:Session=Depends(get_db)):
+async def get_current_user(token:str = Depends(oauth2_scheme),
+                     db:AsyncSession=Depends(get_db)):
     current_user_id = verify_token_access(token)
-    current_user = db.scalar(select(User).where(User.id == current_user_id))
+    current_user = await db.scalar(select(User).where(User.id == current_user_id))
     if not current_user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid authentication credentials")
     return current_user

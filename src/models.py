@@ -2,7 +2,7 @@ from datetime import datetime, UTC, date
 
 from src.db import Base
 from src.enums import RequestStatus, MediaType, VoteType, WatchlistStatus
-from sqlalchemy import ForeignKey, UniqueConstraint
+from sqlalchemy import ForeignKey, UniqueConstraint, DateTime
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 
 
@@ -12,11 +12,11 @@ class User(Base):
     username: Mapped[str] = mapped_column(unique=True)
     email: Mapped[str] = mapped_column(unique=True)
     password_hash: Mapped[str] = mapped_column(nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
     is_private: Mapped[bool] = mapped_column(default=False,nullable=False)
     is_admin: Mapped[bool] = mapped_column(default=False,nullable=False)
     is_deleted: Mapped[bool] = mapped_column(default=False,nullable=False)
-    last_login: Mapped[datetime|None] = mapped_column(nullable=True)
+    last_login: Mapped[datetime|None] = mapped_column(DateTime(timezone=True),nullable=True)
     watchlist: Mapped[list["Watchlist"]] = relationship(back_populates="user",passive_deletes=True)
     reviews: Mapped[list["Review"]] = relationship(back_populates="user",passive_deletes=True)
     outgoing_follows: Mapped[list["Follow"]] = relationship("Follow",foreign_keys="Follow.follower_id",back_populates="follower",passive_deletes=True)
@@ -33,8 +33,8 @@ class Media(Base):
     media_type:Mapped[MediaType] = mapped_column(nullable=False)
     title: Mapped[str]= mapped_column(nullable=False)
     premiere_date: Mapped[date|None]= mapped_column(nullable=True)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
-    last_synced: Mapped[datetime]= mapped_column(default=lambda:datetime.now(UTC),nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
+    last_synced: Mapped[datetime]= mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC),nullable=False)
     saved_by: Mapped[list["Watchlist"]] = relationship(back_populates="media")
     reviews: Mapped[list["Review"]] = relationship(back_populates="media")
 
@@ -44,7 +44,7 @@ class Watchlist(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"),nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
     status: Mapped[WatchlistStatus] = mapped_column(default=WatchlistStatus.unwatched)
     user: Mapped["User"] = relationship(back_populates="watchlist")
     media: Mapped["Media"] = relationship(back_populates="saved_by")
@@ -57,7 +57,7 @@ class Review(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     content:Mapped[str] = mapped_column(nullable=False)
     rating:Mapped[int] = mapped_column(nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
     media: Mapped["Media"] = relationship(back_populates="reviews")
     user: Mapped["User"] = relationship(back_populates="reviews")
     votes: Mapped[list["ReviewVote"]] = relationship(back_populates="review",passive_deletes=True)
@@ -70,7 +70,7 @@ class Follow(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     follower_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False) 
     following_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
     follower: Mapped["User"] = relationship("User",foreign_keys=[follower_id],back_populates="outgoing_follows")
     following: Mapped["User"] = relationship("User",foreign_keys=[following_id],back_populates="incoming_follows")
 
@@ -82,7 +82,7 @@ class FollowRequest(Base):
     follower_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False) 
     following_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     status:Mapped[RequestStatus] = mapped_column(default=RequestStatus.pending,nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
     follower: Mapped["User"] = relationship("User",foreign_keys=[follower_id],back_populates="sent_follow_requests")
     following: Mapped["User"] = relationship("User",foreign_keys=[following_id],back_populates="received_follow_requests")
 
@@ -94,7 +94,7 @@ class ReviewVote(Base):
     review_id: Mapped[int] = mapped_column(ForeignKey("reviews.id",ondelete="CASCADE"),nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     vote_type: Mapped[VoteType] = mapped_column(default=VoteType.upvote,nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
     review: Mapped["Review"] = relationship(back_populates="votes")
 
 
@@ -104,6 +104,6 @@ class Comment(Base):
     review_id: Mapped[int] = mapped_column(ForeignKey("reviews.id",ondelete="CASCADE"),nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id",ondelete="CASCADE"),nullable=False)
     content: Mapped[str] = mapped_column(nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=lambda:datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),default=lambda:datetime.now(UTC))
     review: Mapped["Review"] = relationship(back_populates="comments")
     user: Mapped["User"] = relationship(back_populates="comments")

@@ -1,18 +1,21 @@
+import httpx
 from sqlalchemy import select
 from fastapi import HTTPException,status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import Media
 from src.enums import MediaType,SearchMediaType
-from src.services.tmdb.services import search_movie,search_tv,trending_movies,trending_tv,get_by_id,get_media_info
+from src.services.tmdb.service import search_movie,search_tv,trending_movies,trending_tv,get_by_id,get_media_info
 
 
-def get_or_fetch(func,
+async def get_or_fetch(func,
                  media_type:MediaType,
+                 client: httpx.AsyncClient,
                  search:str|None=None,
                  page:int=1):
     results=[]
-    tmdb_response = func(search,page)       
+    tmdb_response = await func(client,search,page)       
     
     search_results = {
               "query":search,
@@ -33,20 +36,21 @@ def get_or_fetch(func,
 
 class MediaService:
 
-    def search(self,
+    async def search(self,
                search: str,
                media_type:SearchMediaType,
-               page:int):
+               page:int,
+               client:httpx.AsyncClient):
 
         if media_type == SearchMediaType.movie:
-          search_results = get_or_fetch(search_movie,SearchMediaType.movie,search,page)
+          search_results = await get_or_fetch(search_movie,SearchMediaType.movie,client,search,page)
 
         if media_type == SearchMediaType.tv:
-          search_results = get_or_fetch(search_tv,SearchMediaType.tv,search,page)
+          search_results = await get_or_fetch(search_tv,SearchMediaType.tv,client,search,page)
 
         if media_type == SearchMediaType.all:
-          movie = get_or_fetch(search_movie,SearchMediaType.movie,search,page)
-          tv = get_or_fetch(search_tv,SearchMediaType.tv,search,page)
+          movie = await get_or_fetch(search_movie,SearchMediaType.movie,client,search,page)
+          tv = await get_or_fetch(search_tv,SearchMediaType.tv,client,search,page)
           search_results = {
               "query":search,
               "page":page,
@@ -58,29 +62,35 @@ class MediaService:
         return search_results
 
 
-    def trending_movies(self,
-                        page:int):
+    async def trending_movies(self,
+                        page:int,
+                        client:httpx.AsyncClient):
         
-        results=get_or_fetch(trending_movies,MediaType.movie,page=page)
+        results = await get_or_fetch(trending_movies,MediaType.movie,client,page=page)
         return results
 
     
-    def trending_tv(self,
-                    page:int):
+    async def trending_tv(self,
+                    page:int,
+                    client:httpx.AsyncClient):
         
-        results=get_or_fetch(trending_tv,MediaType.tv,page=page)   
+        results = await get_or_fetch(trending_tv,MediaType.tv,client,page=page)   
         return results
     
 
-    def get_by_id(self,tmdb_id:int,
-                  media_type:MediaType):
-       data = get_by_id(tmdb_id,media_type)
+    async def get_by_id(self,
+                  tmdb_id:int,
+                  media_type:MediaType,
+                  client:httpx.AsyncClient):
+       data = await get_by_id(client,tmdb_id,media_type)
        return data
 
 
     @staticmethod
-    def get_or_create_media(tmdb_id,media_type,db):
-        existing_media = db.scalar(select(Media).where(Media.tmdb_id == tmdb_id,Media.media_type == media_type))
+    async def get_or_create_media(tmdb_id:int,
+                                  media_type:MediaType,
+                                  db:AsyncSession):
+        existing_media = await db.scalar(select(Media).where(Media.tmdb_id == tmdb_id,Media.media_type == media_type))
         if existing_media:
           return existing_media.id
         
@@ -93,11 +103,11 @@ class MediaService:
         )
         try:
             db.add(new_media)
-            db.commit()
-            db.refresh(new_media)
+            await db.commit()
+            await db.refresh(new_media)
 
         except IntegrityError:
-            db.rollback()
+            await db.rollback()
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="Media already exists")
         
         return new_media.id

@@ -17,7 +17,7 @@ def load_cache():
             
 def save_cache(cache,data,ttl,key):
     now= datetime.now(UTC)
-    expires_at= now+ timedelta(minutes=ttl)
+    expires_at= now+ timedelta(hours=ttl)
     metadata= {"cached_at":now.isoformat(),"expires_at":expires_at.isoformat(),"data":data}
     cache[key.strip().lower()]=metadata
     with open("media.json","w") as f:
@@ -39,7 +39,7 @@ def search_in_cache(cache,
     key = f"{search}:{page}"
     if type:
         key = f"search:{search}:{type}:{page}"
-    # print(key)
+        
     if key in cache: 
         print("Using cached result....\n")
         return cache[key]["data"]
@@ -52,15 +52,24 @@ def search_by_id(cache,
                  ):
     
     for cache_key,cache_data in cache.items():
+        if cache_key.split(":")[-2] != media_type.value:
+            continue
+        if cache_data["data"] == None:
+             print("Oops" ,cache_key)
+             continue
+             
         for media in cache_data["data"]["results"]:
             if media["id"] != tmdb_id:
                 continue
             if media_type == MediaType.movie and "title" in media:
+                print("Using cached result....\n")  
                 return media
             if media_type == MediaType.tv and "name" in media:
+                print("Using cached result....\n")  
                 return media
-    return None
 
+    # print("no result found in cache")
+    return None
 
 def str_to_date(date_str):
    if date_str is None or date_str == "":

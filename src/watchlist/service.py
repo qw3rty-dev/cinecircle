@@ -1,9 +1,10 @@
 from sqlalchemy import select, func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import status,HTTPException
 from sqlalchemy.exc import IntegrityError
 
-from src.models import User,Watchlist, Media
+from src.models import User, Watchlist, Media
 from src.media.service import MediaService
 from src.pagination.utils import generate_meta
 from src.enums import MediaType, SortOrder, SortWatchlist, WatchlistStatus
@@ -12,23 +13,23 @@ from src.enums import MediaType, SortOrder, SortWatchlist, WatchlistStatus
 
 class WatchListService:
 
-    def add_to_watchlist(self,
+    async def add_to_watchlist(self,
                          tmdb_id:int,
                          media_type:MediaType,
-                         db:Session,
+                         db:AsyncSession,
                          current_user:User):
         
-        media_id = MediaService.get_or_create_media(tmdb_id,media_type,db)
+        media_id = await MediaService.get_or_create_media(tmdb_id,media_type,db)
         watchlist_obj = Watchlist(
             media_id = media_id,
             user_id = current_user.id
         )
         try:
             db.add(watchlist_obj)
-            db.commit()
-            db.refresh(watchlist_obj)
+            await db.commit()
+            watchlist_obj = await db.scalar(select(Watchlist).options(selectinload(Watchlist.media)).where(Watchlist.id == watchlist_obj.id))
         except IntegrityError:
-            db.rollback()
+            await db.rollback()
             raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="Media already exists in watchlist")
         return {"id":watchlist_obj.id,
                 "media_id":watchlist_obj.media_id,
@@ -38,14 +39,14 @@ class WatchListService:
                 "media":watchlist_obj.media}
 
 
-    def fetch_watchlist(self,
+    async def fetch_watchlist(self,
                         search:str,
                         status:WatchlistStatus,
                         sort_by:SortWatchlist,
                         sort_order:SortOrder,
                         limit:int,
                         page: int,
-                        db:Session,
+                        db:AsyncSession,
                         current_user:User):
         
         query = select(Watchlist).where(Watchlist.user_id == current_user.id)
@@ -56,7 +57,7 @@ class WatchListService:
         if status:
             query = query.where(Watchlist.status == status.value)
 
-        total = db.scalar(select(func.count()).select_from(query.subquery()))
+        total = await db.scalar(select(func.count()).select_from(query.subquery()))
         sort_fields={SortWatchlist.created_at.created_at: Watchlist.created_at,
                      SortWatchlist.title: func.lower(Media.title)}
         sort_expression = sort_fields[sort_by]
@@ -64,23 +65,23 @@ class WatchListService:
         query = query.order_by(order,Watchlist.id.desc())
         offset = (page-1)*limit
         query = query.limit(limit).offset(offset)
-        watchlist = db.scalars(query).all()
+        watchlist = (await db.scalars(query)).all()
         meta = generate_meta(page,limit,total)
 
         return {"meta":meta,
                 "watchlist":watchlist}
     
-    def change_status(self,
+    async def change_status(self,
                     id:int,
                     new_status:str,
-                    db:Session,
+                    db:AsyncSession,
                     current_user:User):
-        watchlist_obj = db.scalar(select(Watchlist).where(Watchlist.id == id,Watchlist.user_id == current_user.id))
+        watchlist_obj = await db.scalar(select(Watchlist).options(selectinload(Watchlist.media)).where(Watchlist.id == id,Watchlist.user_id == current_user.id))
         if not watchlist_obj:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Review not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Media not found")
         if watchlist_obj.status != new_status:
             watchlist_obj.status = new_status
-            db.commit()
+            await db.commit()
         return {"id":watchlist_obj.id,
                 "media_id":watchlist_obj.media_id,
                 "user_id":watchlist_obj.user_id,
@@ -88,17 +89,17 @@ class WatchListService:
                 "created_at":watchlist_obj.created_at,
                 "media":watchlist_obj.media}
     
-    def remove_from_watchlist(self,
+    async def remove_from_watchlist(self,
                               id:int,
-                              db:Session,
+                              db:AsyncSession,
                               current_user:User):
         
-        media = db.scalar(select(Watchlist).where(Watchlist.id == id,Watchlist.user_id == current_user.id))
+        media = await db.scalar(select(Watchlist).where(Watchlist.id == id,Watchlist.user_id == current_user.id))
         if not media:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Media not found")
         
-        db.delete(media)
-        db.commit()
+        await db.delete(media)
+        await db.commit()
 
         
 
