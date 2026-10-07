@@ -1,186 +1,295 @@
-from sqlalchemy import select,or_, func
-from sqlalchemy.orm import selectinload
-from fastapi import status,HTTPException
+import httpx
+from fastapi import HTTPException, status
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from src.common.utils import generate_meta
+from src.enums import (
+    MediaActivityType,
+    MediaType,
+    Rating,
+    SortComments,
+    SortMyReviews,
+    SortOrder,
+    SortReviews,
+    VoteType,
+)
 from src.media.service import MediaService
-from src.pagination.utils import generate_meta
-from src.models import User,Review,Media,ReviewVote,Comment
-from .schemas import UpdateReviewRequest,UpdateCommentRequest
-from src.enums import MediaType, VoteType, SortComments,SortReviews,SortMyReviews, SortOrder, Rating
+from src.models import Comment, Media, MediaActivity, Review, ReviewVote, User
+
+from .schemas import UpdateCommentRequest, UpdateReviewRequest
 
 
-async def extract_votes_of_reviews(review_ids:list,
-                             db:AsyncSession,
-                             current_user:User):
-        
-        vote_count = (await db.execute(select(ReviewVote.review_id,func.count().filter(ReviewVote.vote_type==VoteType.upvote).label("upvote"),func.count().filter(ReviewVote.vote_type==VoteType.downvote).label("downvote")).where(ReviewVote.review_id.in_(review_ids)).group_by(ReviewVote.review_id))).all()
-        my_votes = (await db.execute(select(ReviewVote.review_id,ReviewVote.vote_type).where(ReviewVote.user_id==current_user.id,ReviewVote.review_id.in_(review_ids)))).all()
+async def extract_votes_of_reviews(
+    review_ids: list, db: AsyncSession, current_user: User
+):
+    if not review_ids:
+        return {}, {}
+    vote_count = (
+        await db.execute(
+            select(
+                ReviewVote.review_id,
+                func.count()
+                .filter(ReviewVote.vote_type == VoteType.upvote)
+                .label("upvote"),
+                func.count()
+                .filter(ReviewVote.vote_type == VoteType.downvote)
+                .label("downvote"),
+            )
+            .join(ReviewVote.user)
+            .where(ReviewVote.review_id.in_(review_ids), User.is_deleted.is_(False))
+            .group_by(ReviewVote.review_id)
+        )
+    ).all()
 
-        vote_counts = {review_id:{"upvotes":upvotes,"downvotes":downvotes} for review_id, upvotes, downvotes in vote_count }
-        my_vote_types = {review_id:vote_type for review_id,vote_type in my_votes}
+    if current_user:
+        my_votes = (
+            await db.execute(
+                select(ReviewVote.review_id, ReviewVote.vote_type).where(
+                    ReviewVote.user_id == current_user.id,
+                    ReviewVote.review_id.in_(review_ids),
+                )
+            )
+        ).all()
 
-        return vote_counts,my_vote_types  
+    vote_counts = {
+        review_id: {"upvotes": upvotes, "downvotes": downvotes}
+        for review_id, upvotes, downvotes in vote_count
+    }
+    my_vote_types = (
+        {review_id: vote_type for review_id, vote_type in my_votes}
+        if current_user
+        else {review_id: None for review_id in review_ids}
+    )
 
-async def extract_comments_from_review(review_id:int,
-                                search:str,
-                                sort_by:SortComments,
-                                sort_order:SortOrder,
-                                limit:int,
-                                page:int,
-                                db:AsyncSession): 
+    return vote_counts, my_vote_types
 
-        review = await db.scalar(select(Review).where(Review.id == review_id))
-        if not review:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Review not found")
-        
-        query= select(Comment).where(Comment.review_id==review_id)
-        query= query.join(Comment.user).options(selectinload(Comment.user))
-        if search:
-            query= query.where(Comment.content.ilike(f"%{search}%"))
-        total = await db.scalar(select(func.count()).select_from(query.subquery()))
-        sort_fields= {
-            SortComments.created_at:Comment.created_at,
-            SortComments.username: func.lower(User.username)
-        }
-        sort_expression = sort_fields[sort_by]
-        order = sort_expression.asc() if sort_order == SortOrder.asc else sort_expression.desc()
-        query = query.order_by(order,Comment.id.desc())
-        offset = (page-1)*limit
-        query = query.limit(limit).offset(offset)
-        comments = (await db.scalars(query)).all()
-        return comments,review,total
 
-async def extract_reviews(media_id:int,
-                    search:str,
-                    author:str,
-                    rating:Rating,
-                    sort_by:SortReviews,
-                    sort_order:SortOrder,
-                    limit:int,
-                    page:int,
-                    db:AsyncSession): 
-        
-        media = await db.scalar(select(Media).where(Media.id == media_id))
-        if not media:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Media not found")
-        query= select(Review).where(Review.media_id==media_id)
-        query = query.join(Review.user).options(selectinload(Review.user))
-        if search:
-            query= query.where(Review.content.ilike(f"%{search}%"))
-        if author:
-            query= query.where(User.username.ilike(f"%{author.strip()}%"))
-        if rating:
-            query= query.where(Review.rating == rating.value)
+async def get_review_comments_query(
+    review_id: int,
+    search: str,
+    sort_by: SortComments,
+    sort_order: SortOrder,
+    limit: int,
+    page: int,
+    db: AsyncSession,
+):
 
-        total = await db.scalar(select(func.count()).select_from(query.subquery()))
-        sort_fields= {
-            SortReviews.created_at:Review.created_at,
-            SortReviews.username: func.lower(User.username),
-            SortReviews.rating: Review.rating
-        }
-        sort_expression = sort_fields[sort_by]
-        order = sort_expression.asc() if sort_order == SortOrder.asc else sort_expression.desc()
-        query = query.order_by(order,Review.id.desc())
+    review = await db.scalar(
+        select(Review)
+        .join(Review.user)
+        .where(Review.id == review_id, User.is_deleted.is_(False))
+        .options(selectinload(Review.user))
+    )
+    if not review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
+        )
 
-        offset = (page-1)*limit
-        query = query.limit(limit).offset(offset)
-        reviews = (await db.scalars(query)).all()
-        return reviews,media,total
+    query = select(Comment).where(Comment.review_id == review_id)
+    query = (
+        query.join(Comment.user)
+        .where(User.is_deleted.is_(False))
+        .options(selectinload(Comment.user))
+    )
+    if search:
+        search = search.strip()
+        query = query.where(Comment.content.ilike(f"%{search}%"))
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    sort_fields = {
+        SortComments.created_at: Comment.created_at,
+        SortComments.username: func.lower(User.username),
+    }
+    sort_expression = sort_fields[sort_by]
+    order = (
+        sort_expression.asc() if sort_order == SortOrder.asc else sort_expression.desc()
+    )
+    query = query.order_by(order, Comment.id.desc())
+    offset = (page - 1) * limit
+    query = query.limit(limit).offset(offset)
+    comments = (await db.scalars(query)).all()
+    return comments, review, total
 
-async def extract_my_reviews(user_id:int,
-                    search:str,
-                    rating:Rating,
-                    sort_by:SortMyReviews,
-                    sort_order:SortOrder,
-                    limit:int,
-                    page:int,
-                    db:AsyncSession): 
-        query= select(Review).where(Review.user_id == user_id)
-        query = query.join(Review.media).options(selectinload(Review.media))
-        
-        if search:
-            query= query.where(or_(Review.content.ilike(f"%{search}%"),Media.title.ilike(f"%{search.strip()}%")))
-        if rating:
-            query= query.where(Review.rating == rating.value)
-        total = await db.scalar(select(func.count()).select_from(query.subquery()))
-        sort_fields= {
-            SortMyReviews.created_at:Review.created_at,
-            SortMyReviews.rating:Review.rating,
-            SortMyReviews.title: func.lower(Media.title)
-        }
-        sort_expression = sort_fields[sort_by]
-        order = sort_expression.asc() if sort_order == SortOrder.asc else sort_expression.desc()
-        query = query.order_by(order,Review.id.desc())
 
-        offset = (page-1)*limit
-        query = query.limit(limit).offset(offset)
-        reviews = (await db.scalars(query)).all()
-        return reviews,total
+async def extract_reviews(
+    media_id: int,
+    search: str,
+    author: str,
+    rating: Rating,
+    sort_by: SortReviews,
+    sort_order: SortOrder,
+    limit: int,
+    page: int,
+    db: AsyncSession,
+):
+
+    media = await db.scalar(select(Media).where(Media.id == media_id))
+    if not media:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Media not found"
+        )
+    query = select(Review).where(Review.media_id == media_id)
+    query = (
+        query.join(Review.user)
+        .options(selectinload(Review.user))
+        .where(User.is_deleted.is_(False))
+    )
+    if search:
+        search = search.strip()
+        query = query.where(Review.content.ilike(f"%{search}%"))
+    if author:
+        author = author.strip()
+        query = query.where(User.username.ilike(f"%{author.strip()}%"))
+    if rating:
+        query = query.where(Review.rating == rating.value)
+
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    sort_fields = {
+        SortReviews.created_at: Review.created_at,
+        SortReviews.username: func.lower(User.username),
+        SortReviews.rating: Review.rating,
+    }
+    sort_expression = sort_fields[sort_by]
+    order = (
+        sort_expression.asc() if sort_order == SortOrder.asc else sort_expression.desc()
+    )
+    query = query.order_by(order, Review.id.desc())
+
+    offset = (page - 1) * limit
+    query = query.limit(limit).offset(offset)
+    reviews = (await db.scalars(query)).all()
+    return reviews, media, total
+
+
+async def extract_my_reviews(
+    user_id: int,
+    search: str,
+    rating: Rating,
+    sort_by: SortMyReviews,
+    sort_order: SortOrder,
+    limit: int,
+    page: int,
+    db: AsyncSession,
+):
+    query = select(Review).where(Review.user_id == user_id)
+    query = query.join(Review.media).options(selectinload(Review.media))
+
+    if search:
+        query = query.where(
+            or_(
+                Review.content.ilike(f"%{search}%"),
+                Media.title.ilike(f"%{search.strip()}%"),
+            )
+        )
+    if rating:
+        query = query.where(Review.rating == rating.value)
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    sort_fields = {
+        SortMyReviews.created_at: Review.created_at,
+        SortMyReviews.rating: Review.rating,
+        SortMyReviews.title: func.lower(Media.title),
+    }
+    sort_expression = sort_fields[sort_by]
+    order = (
+        sort_expression.asc() if sort_order == SortOrder.asc else sort_expression.desc()
+    )
+    query = query.order_by(order, Review.id.desc())
+
+    offset = (page - 1) * limit
+    query = query.limit(limit).offset(offset)
+    reviews = (await db.scalars(query)).all()
+    return reviews, total
+
 
 class ReviewService:
+    async def add_review(
+        self,
+        tmdb_id: int,
+        media_type: MediaType,
+        rating: int,
+        content: str,
+        db: AsyncSession,
+        current_user: User,
+        client: httpx.AsyncClient,
+    ):
 
-    async def add_review(self,
-                  tmdb_id:int,
-                  media_type:MediaType,
-                  rating:int,
-                  content:str,
-                  db:AsyncSession,
-                  current_user:User):
-        
-        media_id = await MediaService.get_or_create_media(tmdb_id,media_type,db)
-        review = Review(
-            media_id = media_id,
-            user_id = current_user.id,
-            rating = rating,
-            content = content
+        media_id = await MediaService.get_or_create_media(
+            tmdb_id, media_type, db, client
         )
+
+        review = Review(
+            media_id=media_id, user_id=current_user.id, rating=rating, content=content
+        )
+        existing_activity = await db.scalar(
+            select(
+                exists().where(
+                    MediaActivity.media_id == media_id,
+                    MediaActivity.user_id == current_user.id,
+                )
+            )
+        )
+        if not existing_activity:
+            user_activity = MediaActivity(
+                media_id=media_id,
+                user_id=current_user.id,
+                activity=MediaActivityType.watched,
+            )
+            db.add(user_activity)
         try:
             db.add(review)
             await db.commit()
-            review = await db.scalar(select(Review).options(selectinload(Review.media)).where(Review.id == review.id))
+            review = await db.scalar(
+                select(Review)
+                .options(selectinload(Review.media))
+                .where(Review.id == review.id)
+            )
 
         except IntegrityError:
             await db.rollback()
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="review already exists")
-        
-        return {
-                "media":{
-                    "id":review.media.id,
-                    "title":review.media.title,
-                    "media_type":review.media.media_type,
-                    "premiere_date":review.media.premiere_date
-                },
-                "review":{
-                    "id":review.id,
-                    "user":{
-                        "id":review.user.id,
-                        "username":review.user.username
-                    },
-                    "rating":review.rating,
-                    "content":review.content,
-                    "upvotes":0,
-                    "downvotes":0,
-                    "my_vote":None,
-                    "created_at":review.created_at}
-        }
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="review already exists"
+            )
 
-    async def vote(self,
-             review_id:int,
-             vote_type:VoteType,
-             db:AsyncSession,
-             current_user:User):
-        
-        review = await db.scalar(select(Review).where(Review.id == review_id))
+        return {
+                "id": review.id,
+                "rating": review.rating,
+                "content": review.content,
+                "upvotes": 0,
+                "downvotes": 0,
+                "my_vote": None,
+                "created_at": review.created_at,
+                "media": {
+                    "id": review.media.id,
+                    "title": review.media.title,
+                    "media_type": review.media.media_type,
+                    "premiere_date": review.media.premiere_date,
+                },
+            }
+
+    async def vote(
+        self, review_id: int, vote_type: VoteType, db: AsyncSession, current_user: User
+    ):
+
+        review = await db.scalar(
+            select(Review)
+            .join(Review.user)
+            .options(selectinload(Review.user))
+            .where(Review.id == review_id, User.is_deleted.is_(False))
+        )
         if not review:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Review not found")
-        existing_vote = await db.scalar(select(ReviewVote).where(ReviewVote.review_id == review_id,ReviewVote.user_id == current_user.id))
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
+            )
+        existing_vote = await db.scalar(
+            select(ReviewVote).where(
+                ReviewVote.review_id == review_id, ReviewVote.user_id == current_user.id
+            )
+        )
         if not existing_vote:
             vote = ReviewVote(
-                review_id=review_id,
-                user_id=current_user.id,
-                vote_type=vote_type
+                review_id=review_id, user_id=current_user.id, vote_type=vote_type
             )
 
             db.add(vote)
@@ -194,20 +303,20 @@ class ReviewService:
         await db.commit()
         return {"vote_type": existing_vote.vote_type}
 
-    async def comment(self,
-                review_id:int,
-                content:str,
-                db:AsyncSession,
-                current_user:User):
-        
-        review = await db.scalar(select(Review).where(Review.id == review_id))
-        if not review:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Review not found")
-        comment = Comment(
-            review_id = review_id,
-            user_id = current_user.id,
-            content = content
+    async def comment(
+        self, review_id: int, content: str, db: AsyncSession, current_user: User
+    ):
+
+        review = await db.scalar(
+            select(Review)
+            .join(Review.user)
+            .where(Review.id == review_id, User.is_deleted.is_(False))
         )
+        if not review:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
+            )
+        comment = Comment(review_id=review_id, user_id=current_user.id, content=content)
         db.add(comment)
         await db.commit()
         await db.refresh(comment)
@@ -215,26 +324,31 @@ class ReviewService:
             "id": comment.id,
             "content": comment.content,
             "created_at": comment.created_at,
-            "user": {
-                "id":current_user.id,
-                "username":current_user.username
-            },
-            "review_id": review_id
+            "user": {"id": current_user.id, "username": current_user.username},
+            "review_id": review_id,
         }
 
-    async def edit_comment(self,
-                     comment_id:int,
-                     update:UpdateCommentRequest,
-                     db:AsyncSession,
-                     current_user:User):
+    async def edit_comment(
+        self,
+        comment_id: int,
+        update: UpdateCommentRequest,
+        db: AsyncSession,
+        current_user: User,
+    ):
 
-        comment = await db.scalar(select(Comment).where(Comment.id == comment_id,Comment.user_id == current_user.id))
+        comment = await db.scalar(
+            select(Comment).where(
+                Comment.id == comment_id, Comment.user_id == current_user.id
+            )
+        )
         if not comment:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Comment not found")
-        
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found"
+            )
+
         update = update.model_dump(exclude_unset=True)
-        for field,value in update.items():
-            setattr(comment,field,value)
+        for field, value in update.items():
+            setattr(comment, field, value)
 
         await db.commit()
         await db.refresh(comment)
@@ -242,244 +356,263 @@ class ReviewService:
             "id": comment.id,
             "content": comment.content,
             "created_at": comment.created_at,
-            "user": {
-                "id":current_user.id,
-                "username":current_user.username
-            },
-            "review_id": comment.review_id
-        }      
-    async def get_comments(self,
-                     review_id:int,
-                     search:str,
-                     sort_by:SortComments,
-                     order:SortOrder,
-                     limit:int,
-                     page:int,
-                     db:AsyncSession,
-                     current_user:User):
-        
-        comments,review,total = await extract_comments_from_review(review_id,search,sort_by,order,limit,page,db)
-        results= []
+            "user": {"id": current_user.id, "username": current_user.username},
+            "review_id": comment.review_id,
+        }
+
+    async def get_comments(
+        self,
+        review_id: int,
+        search: str,
+        sort_by: SortComments,
+        order: SortOrder,
+        limit: int,
+        page: int,
+        db: AsyncSession,
+        current_user: User,
+    ):
+
+        comments, review, total = await get_review_comments_query(
+            review_id, search, sort_by, order, limit, page, db
+        )
+        results = []
         for comment in comments:
             item = {
-            "id": comment.id,
-            "content": comment.content,
-            "created_at": comment.created_at,
-            "user": {
-                "id":comment.user_id,
-                "username":comment.user.username
+                "id": comment.id,
+                "content": comment.content,
+                "created_at": comment.created_at,
+                "user": {"id": comment.user_id, "username": comment.user.username},
             }
-        }
-            
+
             results.append(item)
 
-        meta = generate_meta(page,limit,total)
+        meta = generate_meta(page, limit, total)
 
-        vote_counts,my_vote_types = await extract_votes_of_reviews([review_id],db,current_user)
-        votes = vote_counts.get(review.id,{"upvotes": 0 ,"downvotes": 0})
+        vote_counts, my_vote_types = await extract_votes_of_reviews(
+            [review_id], db, current_user
+        )
+        votes = vote_counts.get(review.id, {"upvotes": 0, "downvotes": 0})
         upvotes = votes["upvotes"]
         downvotes = votes["downvotes"]
         my_vote = my_vote_types.get(review_id)
 
         review = {
-                "id":review.id,
-                "rating":review.rating,
-                "content":review.content,
-                "upvotes":upvotes,
-                "downvotes":downvotes,
-                "my_vote":my_vote,
-                "created_at":review.created_at,
-                "user":{"id":review.user_id,
-                        "username":review.user.username}
-                }
+            "id": review.id,
+            "rating": review.rating,
+            "content": review.content,
+            "upvotes": upvotes,
+            "downvotes": downvotes,
+            "my_vote": my_vote,
+            "created_at": review.created_at,
+            "user": {"id": review.user_id, "username": review.user.username},
+        }
 
-        return {"meta":meta,
-                "review":review,
-                "comments":results}
-        
-    async def get_reviews(self,
-                    media_id:int,
-                    search:str,
-                    author:str,
-                    rating:str,
-                    sort_by:SortReviews,
-                    sort_order:SortOrder,
-                    limit:int,
-                    page:int,
-                    db:AsyncSession,
-                    current_user:User):
-        
-        reviews,media,total = await extract_reviews(media_id,search,author,rating,sort_by,sort_order,limit,page,db)
+        return {"meta": meta, "review": review, "comments": results}
+
+    async def get_reviews(
+        self,
+        media_id: int,
+        search: str,
+        author: str,
+        rating: Rating,
+        sort_by: SortReviews,
+        sort_order: SortOrder,
+        limit: int,
+        page: int,
+        db: AsyncSession,
+        current_user: User | None,
+    ):
+
+        reviews, media, total = await extract_reviews(
+            media_id, search, author, rating, sort_by, sort_order, limit, page, db
+        )
         review_ids = [review.id for review in reviews]
-        vote_counts,my_vote_types = await extract_votes_of_reviews(review_ids,db,current_user)
+        vote_counts, my_vote_types = await extract_votes_of_reviews(
+            review_ids, db, current_user
+        )
         results = []
         for review in reviews:
-            votes = vote_counts.get(review.id,{"upvotes": 0 ,"downvotes": 0})
+            votes = vote_counts.get(review.id, {"upvotes": 0, "downvotes": 0})
             item = {
-                    "id":review.id,
-                    "user":{
-                        "id":review.user.id,
-                        "username":review.user.username
-                    },
-                    "rating":review.rating,
-                    "content":review.content,
-                    "upvotes":votes["upvotes"],
-                    "downvotes":votes["downvotes"],
-                    "my_vote":my_vote_types.get(review.id),
-                    "created_at":review.created_at}
-                   
+                "id": review.id,
+                "user": {"id": review.user.id, "username": review.user.username},
+                "rating": review.rating,
+                "content": review.content,
+                "upvotes": votes["upvotes"],
+                "downvotes": votes["downvotes"],
+                "my_vote": my_vote_types.get(review.id),
+                "created_at": review.created_at,
+            }
+
             results.append(item)
 
-        meta = generate_meta(page,limit,total)
+        meta = generate_meta(page, limit, total)
         media = {
-                "id":media.id,
-                "title":media.title,
-                "media_type":media.media_type,
-                "premiere_date":media.premiere_date
-            }
-        return {"meta":meta,
-                "media":media,
-                "reviews":results}
+            "id": media.id,
+            "title": media.title,
+            "media_type": media.media_type,
+            "premiere_date": media.premiere_date,
+        }
+        return {"meta": meta, "media": media, "reviews": results}
 
+    async def delete_comment(
+        self, comment_id: int, db: AsyncSession, current_user: User
+    ):
 
-    async def delete_comment(self,
-                       comment_id:int,
-                       db:AsyncSession,
-                       current_user:User):
-        
-        comment = await db.scalar(select(Comment).where(Comment.id == comment_id,Comment.user_id == current_user.id))
+        comment = await db.scalar(
+            select(Comment).where(
+                Comment.id == comment_id, Comment.user_id == current_user.id
+            )
+        )
         if not comment:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Comment not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found"
+            )
         await db.delete(comment)
         await db.commit()
 
-    async def get_my_reviews(self,
-                      search:str,
-                      rating:Rating,
-                      sort_by:SortMyReviews,
-                      sort_order:SortOrder,
-                      limit:int,
-                      page:int,
-                      db:AsyncSession,
-                      current_user:User):
-        
-        reviews,total = await extract_my_reviews(current_user.id,search,rating,sort_by,sort_order,limit,page,db)
+    async def get_my_reviews(
+        self,
+        search: str,
+        rating: Rating,
+        sort_by: SortMyReviews,
+        sort_order: SortOrder,
+        limit: int,
+        page: int,
+        db: AsyncSession,
+        current_user: User,
+    ):
+
+        reviews, total = await extract_my_reviews(
+            current_user.id, search, rating, sort_by, sort_order, limit, page, db
+        )
         review_ids = [review.id for review in reviews]
-        vote_counts,my_vote_types = await extract_votes_of_reviews(review_ids,db,current_user)
-        results =[]
+        vote_counts, my_vote_types = await extract_votes_of_reviews(
+            review_ids, db, current_user
+        )
+        results = []
         for review in reviews:
-            votes = vote_counts.get(review.id,{"upvotes": 0 ,"downvotes": 0})
-            item ={
-                "id":review.id,
-                "rating":review.rating,
-                "content":review.content,
-                "upvotes":votes["upvotes"],
-                "downvotes":votes["downvotes"],
-                "my_vote":my_vote_types.get(review.id),
-                "created_at":review.created_at,
-                "media":{
-                    "id":review.media.id,
-                    "title":review.media.title,
-                    "media_type":review.media.media_type,
-                    "premiere_date":review.media.premiere_date
-                     }
+            votes = vote_counts.get(review.id, {"upvotes": 0, "downvotes": 0})
+            item = {
+                "id": review.id,
+                "rating": review.rating,
+                "content": review.content,
+                "upvotes": votes["upvotes"],
+                "downvotes": votes["downvotes"],
+                "my_vote": my_vote_types.get(review.id),
+                "created_at": review.created_at,
+                "media": {
+                    "id": review.media.id,
+                    "title": review.media.title,
+                    "media_type": review.media.media_type,
+                    "premiere_date": review.media.premiere_date,
+                },
             }
             results.append(item)
 
-        meta = generate_meta(page,limit,total)
+        meta = generate_meta(page, limit, total)
 
-        return {"meta":meta,
-                "reviews":results}
+        return {"meta": meta, "reviews": results}
 
-    
-    async def get_review_by_id(self,
-                        review_id:int,
-                        db:AsyncSession,
-                        current_user:User):
-        
-        review = await db.scalar(select(Review).options(selectinload(Review.media)).where(Review.id == review_id))
+    async def get_review_by_id(
+        self, review_id: int, db: AsyncSession, current_user: User
+    ):
+
+        review = await db.scalar(
+            select(Review)
+            .join(Review.user)
+            .options(selectinload(Review.media), selectinload(Review.user))
+            .where(Review.id == review_id, User.is_deleted.is_(False))
+        )
         if not review:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Review not found")
-        
-        vote_counts,my_vote_types = await extract_votes_of_reviews([review_id],db,current_user)
-        votes = vote_counts.get(review.id,{"upvotes": 0 ,"downvotes": 0})
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
+            )
+
+        vote_counts, my_vote_types = await extract_votes_of_reviews(
+            [review_id], db, current_user
+        )
+        votes = vote_counts.get(review.id, {"upvotes": 0, "downvotes": 0})
         upvotes = votes["upvotes"]
         downvotes = votes["downvotes"]
         my_vote = my_vote_types.get(review_id)
 
         return {
-                "media":{
-                    "id":review.media.id,
-                    "title":review.media.title,
-                    "media_type":review.media.media_type,
-                    "premiere_date":review.media.premiere_date
-                },
-                "review":{
-                    "id":review.id,
-                    "user":{
-                        "id":review.user.id,
-                        "username":review.user.username
-                    },
-                    "rating":review.rating,
-                    "content":review.content,
-                    "upvotes":upvotes,
-                    "downvotes":downvotes,
-                    "my_vote":my_vote,
-                    "created_at":review.created_at}
+            "media": {
+                "id": review.media.id,
+                "title": review.media.title,
+                "media_type": review.media.media_type,
+                "premiere_date": review.media.premiere_date,
+            },
+            "review": {
+                "id": review.id,
+                "user": {"id": review.user.id, "username": review.user.username},
+                "rating": review.rating,
+                "content": review.content,
+                "upvotes": upvotes,
+                "downvotes": downvotes,
+                "my_vote": my_vote,
+                "created_at": review.created_at,
+            },
         }
 
-        
-    async def edit_review(self,
-                    review_id:int,
-                    update:UpdateReviewRequest,
-                    db:AsyncSession,
-                    current_user:User):
-        
-        review = await db.scalar(select(Review).options(selectinload(Review.media)).where(Review.id == review_id,Review.user_id == current_user.id))
+    async def edit_review(
+        self,
+        review_id: int,
+        update: UpdateReviewRequest,
+        db: AsyncSession,
+        current_user: User,
+    ):
+
+        review = await db.scalar(
+            select(Review)
+            .options(selectinload(Review.media))
+            .where(Review.id == review_id, Review.user_id == current_user.id)
+        )
         if not review:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Review not found")
-        
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
+            )
+
         update = update.model_dump(exclude_unset=True)
-        for field,value in update.items():
-            setattr(review,field,value)
+        for field, value in update.items():
+            setattr(review, field, value)
 
         await db.commit()
         await db.refresh(review)
-        vote_counts,my_vote_types = await extract_votes_of_reviews([review_id],db,current_user)
-        votes = vote_counts.get(review.id,{"upvotes": 0 ,"downvotes": 0})
+        vote_counts, my_vote_types = await extract_votes_of_reviews(
+            [review_id], db, current_user
+        )
+        votes = vote_counts.get(review.id, {"upvotes": 0, "downvotes": 0})
         upvotes = votes["upvotes"]
         downvotes = votes["downvotes"]
         my_vote = my_vote_types.get(review_id)
         return {
-                "id":review.id,
-                "rating":review.rating,
-                "content":review.content,
-                "upvotes":upvotes,
-                "downvotes":downvotes,
-                "my_vote":my_vote,
-                "created_at":review.created_at,
-                "media":{
-                    "id":review.media.id,
-                    "title":review.media.title,
-                    "media_type":review.media.media_type,
-                    "premiere_date":review.media.premiere_date
-                }
+            "id": review.id,
+            "rating": review.rating,
+            "content": review.content,
+            "upvotes": upvotes,
+            "downvotes": downvotes,
+            "my_vote": my_vote,
+            "created_at": review.created_at,
+            "media": {
+                "id": review.media.id,
+                "title": review.media.title,
+                "media_type": review.media.media_type,
+                "premiere_date": review.media.premiere_date,
+            },
         }
 
+    async def delete_review(self, review_id: int, db: AsyncSession, current_user: User):
 
-    async def delete_review(self,
-                      review_id:int,
-                      db:AsyncSession,
-                      current_user:User):
-        
-        review = await db.scalar(select(Review).where(Review.id == review_id,Review.user_id == current_user.id))
+        review = await db.scalar(
+            select(Review).where(
+                Review.id == review_id, Review.user_id == current_user.id
+            )
+        )
         if not review:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail= "Review not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Review not found"
+            )
         await db.delete(review)
         await db.commit()
-                
-
-
-
-
-        

@@ -1,9 +1,9 @@
-from datetime import date,datetime
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from src.common.schemas import MediaResponse, PaginationMeta
 from src.enums import MediaType, WatchlistStatus
-from src.pagination.schemas import PaginationMeta
 
 
 class AddToWatchlistRequest(BaseModel):
@@ -13,16 +13,8 @@ class AddToWatchlistRequest(BaseModel):
 
 
 class UpdateWatchlistRequest(BaseModel):
-    status: WatchlistStatus 
+    status: WatchlistStatus
     model_config = ConfigDict(extra="forbid")
-
-
-class MediaResponse(BaseModel):
-    id: int
-    title: str
-    media_type: MediaType
-    premiere_date: date|None
-    model_config = ConfigDict(from_attributes=True)
 
 
 class WatchlistResponse(BaseModel):

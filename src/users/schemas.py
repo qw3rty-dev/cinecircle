@@ -1,7 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel,ConfigDict
-from src.pagination.schemas import PaginationMeta
+from pydantic import BaseModel, ConfigDict
+
+from src.common.schemas import PaginationMeta
+
 
 class UserProfile(BaseModel):
     username: str
@@ -12,6 +14,7 @@ class UserProfile(BaseModel):
     can_view_content: bool
     model_config = ConfigDict(from_attributes=True)
 
+
 class FollowRequestResponse(BaseModel):
     request_id: int
     username: str
@@ -19,23 +22,26 @@ class FollowRequestResponse(BaseModel):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+
 class FollowAccountResponse(BaseModel):
     username: str
     user_id: int
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+
 class PaginatedFollowRequestResponse(BaseModel):
     meta: PaginationMeta
     results: list[FollowRequestResponse]
+    model_config = ConfigDict(from_attributes=True)
+
 
 class PaginatedUserResponse(BaseModel):
     meta: PaginationMeta
     results: list[FollowAccountResponse]
     model_config = ConfigDict(from_attributes=True)
 
-class MessageResponse(BaseModel):
-    message: str
 
 class PrivacyPreference(BaseModel):
     is_private: bool
+    model_config = ConfigDict(from_attributes=True)
